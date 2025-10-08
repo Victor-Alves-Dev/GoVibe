@@ -90,7 +90,7 @@ Copiar código
 Sem servidor dedicado:
 
 ```bash
-git clone https://github.com/<seu-usuario>/<repo>.git
+git clone https://github.com/<Vivito1>/<repo>.git
 cd <repo>
 
 # Servir arquivos (exemplo com Python)
