@@ -210,8 +210,10 @@ Telemetria de cliques para re-treino com feedback implícito.
 Como contribuir
 Pull requests são bem-vindos. Abra uma issue descrevendo mudanças e passos de teste.
 
-Licença
-MIT. Consulte LICENSE.
+## Licença
+Uso **exclusivo para análise/portfólio**. Não é permitido copiar, usar,
+modificar ou redistribuir o código sem autorização por escrito do autor.
+Veja o arquivo `LICENSE`.
 
 Autor
 Victor Alves
