@@ -5,16 +5,20 @@
 <h1 align="center">GoVibe — Recomendador de Destinos com IA</h1>
 
 <p align="center">
-  Plataforma que sugere destinos de viagem a partir do perfil do usuário, combinando questionário estruturado, pré-processamento e Rede Neural (Keras).
+  <a href="https://peachpuff-rook-575098.hostingersite.com"><img alt="Demo" src="https://img.shields.io/badge/demo-ao%20vivo-22c55e"></a>
+  <a><img alt="Status" src="https://img.shields.io/badge/status-MVP-gray"></a>
+  <a><img alt="Uso" src="https://img.shields.io/badge/uso-Portf%C3%B3lio%20apenas-red"></a>
+  <a><img alt="Stack" src="https://img.shields.io/badge/stack-Frontend%20%7C%20Recomendador%20IA-black"></a>
 </p>
 
 <p align="center">
-  <a><img alt="Status" src="https://img.shields.io/badge/status-MVP-gray"></a>
-  <a><img alt="License" src="https://img.shields.io/badge/license-MIT-blue"></a>
-  <a><img alt="Python" src="https://img.shields.io/badge/python-3.9%2B-3776AB"></a>
-  <a><img alt="Keras" src="https://img.shields.io/badge/keras-tensorflow-FF6F00"></a>
-  <a><img alt="Stack" src="https://img.shields.io/badge/stack-HTML%20CSS%20JS%20%7C%20Python%20ML-black"></a>
+  <a href="https://peachpuff-rook-575098.hostingersite.com"><b>👉 Acessar Demo ao vivo</b></a>
 </p>
+
+---
+
+## Visão Geral
+O **GoVibe** transforma preferências declarativas do usuário em um **vetor semântico** e produz um **ranking de destinos**. O projeto é dividido em **UI (pública)** e **motor de recomendação (privado)**. Esta versão do repositório é **apenas de apresentação**: fluxos, telas e arquitetura em alto nível.
 
 ---
 
@@ -25,195 +29,90 @@
   <img src="img/japao.png"  alt="Japão"  width="32%">
 </p>
 
-> Assim que tiver screenshots da interface (Home, Formulário e Resultados), substitua por imagens reais em `docs/screens/`.
+---
+
+## Detalhes Técnicos (alto nível)
+
+### 1) Espaço de Recursos (Features)
+Preferências convertidas para um vetor **denso** via codificação mista:
+- **Categorias** (`orçamento`, `duração`, `clima`, `paisagem`, `estilo`, `idioma`, `região`, `cultura_local`, `interesse_cultura`, `fama_pais`, `comida`, `liberdade`, `companhia`).
+- **Codificação**: *one-hot* para nominais; *ordinal* para escalas; *binária* quando aplicável.
+- **Normalização**: *min-max* ou *z-score* conforme a distribuição.
+- **Tratamento de faltantes**: imputação por moda/mediana e categoria “desconhecido”.
+
+> As colunas, mapeamentos e escalas são versionados e validados por *checksum* (não expostos publicamente).
+
+### 2) Arquitetura do Modelo (Recomendador)
+- **Paradigma**: *Learning-to-Rank* simplificado sobre um **MLP** (Keras).
+- **Entrada**: vetor de preferências do usuário + vetores de perfil de destino.
+- **Head**: regressão escalar ∈ [0,1] (afinidade).
+- **Camadas**: 2–3 *Dense* com *BatchNorm* e *Dropout*; ativações ReLU/SiLU.
+- **Loss**: BCE/Huber (ajustada por distribuição de rótulos).
+- **Otimização**: AdamW, *early stopping* por AUC/val-loss.
+- **Regularização**: L2 nos pesos + *label smoothing* leve.
+- **Aferição**: **Top-k**, **MRR**, **Recall@k** por região/idioma e *drift* temporal.
+
+> O MLP é encapsulado em um *pipeline* de pré-processamento e serve apenas **offline** para gerar artefatos; inferência online é isolada.
+
+### 3) Pós-Processamento de Ranking
+- **Normalização de escores** (softmax com *temperature*).
+- **Diversidade** via **MMR** (Maximal Marginal Relevance) balanceando relevância e diversidade regional/cultural.
+- **Regras de negócio**: filtros de idioma, clima ou orçamento se “hard constraints” forem marcados.
+
+### 4) UI / Front-end
+- **Framework-agnóstico**, *vanilla* **HTML/CSS/JS** com:
+  - **Wizard multi-passo** com validação progressiva.
+  - **Tema claro/escuro** persistido (localStorage).
+  - **i18n** por *resource bundles* (JSON) carregados sob demanda.
+  - **Accessibility-first**: semântica, foco visível, *aria-labels*, contraste AA.
+  - **Performance**: *lazy images*, bundling mínimo, *debounce* de inputs e cache de traduções.
+- **Resultados**: cards + modal com moeda, clima, melhor época e fuso (conteúdo editorial curado).
+
+### 5) Integração (sem expor motor)
+- A UI **nunca** envia dados a um endpoint público de ML.
+- O ranking exibido na demo deriva de **artefatos pré-gerados** + regras client-side (mock controlado).
+- Opcional (desenvolvimento local): *feedback* do usuário (nota/comentário) em endpoint privado com **rate-limit** e CORS restrito.
+
+### 6) Observabilidade & Qualidade
+- **Telemetria** anônima (cliques/filtros) apenas em ambiente privado, para re-treino.
+- **Validação de consistência**: schema do vetor, versões de codificação e *hash* dos artefatos.
+- **Testes**: smoke de UI, verificação de strings i18n, testes de integridade dos mapeamentos.
 
 ---
 
-## Visão Geral
-O **GoVibe** coleta preferências (orçamento, duração, clima, paisagem, estilo, idioma, região, cultura local, interesse cultural, fama do destino, culinária, liberdade/regulação e companhia), transforma em vetores, aplica **pré-processamento** (codificação/escala) e utiliza uma **Rede Neural** para estimar a afinidade do usuário com países/destinos.  
-O site inclui carrossel, tema claro/escuro, suporte a múltiplos idiomas, questionário passo a passo e tela de resultados.
+## Arquitetura (diagrama)
 
----
+flowchart LR
+  U[Usuario] --> UI[UI: Wizard, i18n, Tema]
+  UI --> PP[Preprocessamento]
+  PP --> M[MLP Ranker]
+  M --> R[Escore destinos]
+  R --> DV[MMR e Regras]
+  DV --> EX[Exibicao: Ranking e Modais]
 
-## Principais Recursos
-- Questionário multi-passo com 13 dimensões.
-- Recomendações com **ML + Rede Neural** (Keras).
-- Artefatos de pré-processamento e modelo versionados:
-  `encoder_perfis.npy`, `scaler_perfis.pkl`, `colunas_treinadas.pkl`, `modelo_perfis.keras`.
-- Front-end responsivo com alternância de idioma e tema.
-- Modal por país com informações úteis (moeda, clima, época, fuso).
-- **API de Feedback (opcional | local)** para avaliações e comentários do usuário.
+  subgraph Ciclo_offline_privado
+    DS[Curadoria destinos]
+    FT[Engenharia atributos]
+    TR[Treino e Validacao]
+    AR[Artefatos versionados]
+    DS --> FT --> TR --> AR
+    AR -.-> PP
+    AR -.-> M
+  end
 
----
 
-## Tecnologias
-- **Front-end:** HTML, CSS (`style.css`, `slides.css`), JS (`script.js`, `slides.js`, `darkmode.js`, `traducao.js`, `resultados.js`)
-- **ML/Back-office:** Python 3.9+, NumPy, Pandas, scikit-learn, TensorFlow/Keras
-- **Dados:** CSVs de países e mapeamentos (`base_paises_perfis.csv`, `destinos_com_perfis.csv`, `paises_por_perfil.csv`)
-- **Artefatos de treino:** `modelo_perfis.keras`, `encoder_perfis.npy`, `scaler_perfis.pkl`, `colunas_treinadas.pkl`
-- **Scripts:** `treinar_modelo.py`, `prever_perfil.py`, `paises_por_perfil.py`
+Segurança & Privacidade
+Sem coleta de dados sensíveis; preferências não são persistidas na demo.
 
----
+Política de “no public endpoints” para o motor de ML.
 
-## Organização do Repositório
-img/ # imagens e ícones
-index.html # landing + carrossel + formulário + modais
-resultado.html # tela de resultados
-style.css, slides.css # estilos
-script.js, slides.js # UI e interações
-darkmode.js, traducao.js # tema e tradução
-resultados.js # exibição de resultados (UI)
-
-Dados / ML
-base_paises_perfis.csv
-destinos_com_perfis.csv
-paises_por_perfil.csv
-colunas_treinadas.pkl
-encoder_perfis.npy
-scaler_perfis.pkl
-modelo_perfis.keras
-treinar_modelo.py
-prever_perfil.py
-requirements.txt
-
-Deploys/infra (opcional)
-Procfile
-render.yaml
-.runtime.txt
-
-yaml
-Copiar código
-
----
-
-## Como Executar o Front-end (estático)
-Sem servidor dedicado:
-
-```bash
-git clone https://github.com/<Vivito1>/<repo>.git
-cd <repo>
-
-# Servir arquivos (exemplo com Python)
-python -m http.server 8080
-# Acesse http://localhost:8080
-A lógica de recomendação usada na UI consome artefatos locais. O pipeline de ML roda pelos scripts Python.
-
-Ambiente de ML (treino e predição)
-bash
-Copiar código
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-# Linux/Mac:
-source .venv/bin/activate
-pip install -r requirements.txt
-Treino
-
-bash
-Copiar código
-python treinar_modelo.py
-Gera/atualiza: modelo_perfis.keras, encoder_perfis.npy, scaler_perfis.pkl, colunas_treinadas.pkl.
-
-Predição
-
-bash
-Copiar código
-# Exemplo de chamada (ajuste conforme argumentos suportados)
-python prever_perfil.py --orcamento 2000_5000 --duracao media --clima ameno \
-  --paisagem historica --estilo cultura --idioma ingles --regiao europa \
-  --cultura_local diferente --interesse_cultura alto --fama_pais equilibrado \
-  --comida variada --liberdade regras --companhia casal
-API de Feedback (opcional | apenas local)
-A API recebe avaliações do site (nota 1–5, comentário e nome opcional) e lista feedbacks para a UI.
-Não há URL pública e não existe acesso exposto: a API fica desabilitada por padrão e deve ser executada apenas em ambiente local/desenvolvimento.
+Se feedback local for habilitado: hash opcional de IP, retenção curta, rate-limit e CORS fechado.
 
 Status
-Produção: desabilitada (sem endpoint público).
+MVP em evolução: UI pública para demonstração; motor, datasets e artefatos permanecem privados.
 
-Desenvolvimento: use localhost apenas quando necessário.
-
-Endpoints (base local, ex.: http://localhost:8000)
-Método	Rota	Descrição	Corpo/Params	Resposta
-POST	/api/feedback	Cria um feedback	{ rating, nome?, comentario }	201 Created + objeto
-GET	/api/feedback	Lista feedbacks com paginação	?offset=0&limit=10	200 OK + lista
-GET	/health	Healthcheck	—	200 OK
-
-Esquema de dados sugerido:
-id (uuid) · rating (int 1–5) · nome (string opcional) · comentario (string) · created_at (utc) · ip_hash (opcional)
-
-Execução local (exemplo com FastAPI)
-Ajuste o nome do módulo conforme seu arquivo (ex.: feedback_api.py).
-
-bash
-Copiar código
-# Ativar venv e instalar dependências (se ainda não tiver):
-# pip install fastapi uvicorn pydantic[dotenv]
-
-uvicorn feedback_api:app --host 127.0.0.1 --port 8000 --reload
-Variáveis de Ambiente (front-end)
-Definidas no JS para evitar chamadas em produção:
-
-js
-Copiar código
-// script.js
-const FEEDBACK_API_ENABLED = false;            // produção: false
-const FEEDBACK_API_BASEURL = "http://localhost:8000"; // dev local
-
-// No envio:
-if (FEEDBACK_API_ENABLED) {
-  fetch(`${FEEDBACK_API_BASEURL}/api/feedback`, { method: "POST", ... });
-} else {
-  // fallback: mensagem local ou desabilitar botão
-}
-Segurança e privacidade
-CORS restrito a http://localhost em desenvolvimento.
-
-Sem dados sensíveis; armazene somente o necessário.
-
-Se optar por IP hash para antifraude, documente e informe no aviso de privacidade.
-
-Defina retenção (ex.: 90 dias) e limite de taxa (ex.: 10 req/min/IP).
-
-Arquitetura
-mermaid
-Copiar código
-flowchart LR
-U[Usuário] -->|Formulário| F[index.html + script.js]
-F -->|Perfil| P[Pré-processamento]
-P -->|One-Hot/Scale| M[(modelo_perfis.keras)]
-M --> R[Ranking de países/destinos]
-R --> G[resultados.js + resultado.html]
-
-subgraph ML Offline
-  D[(CSVs: países/perfis)]
-  T[treinar_modelo.py]
-  D --> T --> M
-  T --> E[encoder_perfis.npy]
-  T --> S[scaler_perfis.pkl]
-  T --> C[colunas_treinadas.pkl]
-end
-
-subgraph Opcional (dev)
-  A[(Feedback API - local)]
-  F <-- avaliações --> A
-end
-Próximos Passos
-Endpoint de predição (FastAPI/Flask) para integrar o modelo de forma isolada.
-
-Métricas de recomendação (Top-k, MRR) e relatório automatizado.
-
-Explicabilidade (ex.: SHAP) para transparência.
-
-Internacionalização consolidada em arquivo único.
-
-Telemetria de cliques para re-treino com feedback implícito.
-
-Como contribuir
-Pull requests são bem-vindos. Abra uma issue descrevendo mudanças e passos de teste.
-
-## Licença
-Uso **exclusivo para análise/portfólio**. Não é permitido copiar, usar,
-modificar ou redistribuir o código sem autorização por escrito do autor.
-Veja o arquivo `LICENSE`.
+Licença
+Uso exclusivo para análise/portfólio. É proibido copiar, usar, modificar ou redistribuir sem autorização por escrito do autor. Consulte LICENSE.
 
 Autor
 Victor Alves
