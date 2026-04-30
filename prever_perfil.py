@@ -4,7 +4,6 @@ import pandas as pd
 import numpy as np
 import tensorflow as tf
 import joblib
-import os
 
 app = Flask(__name__)
 CORS(app)
@@ -16,12 +15,31 @@ scaler_path = "scaler_perfis.pkl"
 colunas_path = "colunas_treinadas.pkl"
 csv_paises = "base_paises_perfis.csv"
 
-# Carregar tudo na memória
-model = tf.keras.models.load_model(modelo_path)
-classes = np.load(encoder_path, allow_pickle=True)
-scaler = joblib.load(scaler_path)
-colunas_treinadas = joblib.load(colunas_path)
-df_paises = pd.read_csv(csv_paises)
+# 🔥 Lazy loading (ESSENCIAL no Render)
+model = None
+classes = None
+scaler = None
+colunas_treinadas = None
+df_paises = None
+
+def carregar_modelos():
+    global model, classes, scaler, colunas_treinadas, df_paises
+
+    if model is None:
+        print("🚀 Carregando modelo...")
+        model = tf.keras.models.load_model(modelo_path)
+
+    if classes is None:
+        classes = np.load(encoder_path, allow_pickle=True)
+
+    if scaler is None:
+        scaler = joblib.load(scaler_path)
+
+    if colunas_treinadas is None:
+        colunas_treinadas = joblib.load(colunas_path)
+
+    if df_paises is None:
+        df_paises = pd.read_csv(csv_paises)
 
 # Mapeamento
 mapa_perfis = {
@@ -31,86 +49,94 @@ mapa_perfis = {
     "Frio e Montanha": "Frio e Montanha"
 }
 
+# 🔹 rota base (evita 404 no Render)
+@app.route('/')
+def home():
+    return "API GoVibe rodando 🚀"
+
 @app.route('/prever', methods=['POST'])
 def prever():
-    dados = request.json
+    print("1 - entrou na rota")
+
+    carregar_modelos()
+    print("2 - modelos carregados")
+
+    dados = request.get_json()
 
     if not dados or 'binarios' not in dados or 'preferencias' not in dados:
         return jsonify({'erro': 'Dados incompletos'}), 400
 
-    binarios = dados['binarios']
-    preferencias = dados['preferencias']
+    try:
+        binarios = dados['binarios']
+        preferencias = dados['preferencias']
 
-    df_usuario = pd.DataFrame([binarios])
-    df_usuario = df_usuario.reindex(columns=colunas_treinadas, fill_value=0)
-    X_usuario = scaler.transform(df_usuario)
+        df_usuario = pd.DataFrame([binarios])
+        df_usuario = df_usuario.reindex(columns=colunas_treinadas, fill_value=0)
 
-    pred = model.predict(X_usuario)
-    indice_predito = np.argmax(pred)
-    perfil_previsto = classes[indice_predito]
-    perfil_csv = mapa_perfis.get(perfil_previsto)
+        X_usuario = scaler.transform(df_usuario)
 
-    print(f"\n🧠 Perfil previsto: {perfil_previsto}")
-    print(f"🔁 Mapeado como: {perfil_csv}")
+        print("3 - antes do predict")
+        pred = model.predict(X_usuario)
+        print("4 - depois do predict")
 
-    if not perfil_csv:
-        return jsonify({'erro': f"Perfil '{perfil_previsto}' não tem correspondência."}), 500
+        indice_predito = np.argmax(pred)
+        perfil_previsto = classes[indice_predito]
+        perfil_csv = mapa_perfis.get(perfil_previsto)
 
-    prefs = {
-        "idioma": preferencias["idioma"].lower().strip(),
-        "continente": preferencias["continente"].lower().strip(),
-        "cultura": preferencias["cultura"].lower().strip(),
-        "orcamento": preferencias["orcamento"].replace("_", "-").lower().strip()
-    }
+        if not perfil_csv:
+            return jsonify({'erro': f"Perfil '{perfil_previsto}' não tem correspondência."}), 500
 
-    print("🔍 Preferências recebidas:")
-    print(prefs)
+        prefs = {
+            "idioma": preferencias["idioma"].lower().strip(),
+            "continente": preferencias["continente"].lower().strip(),
+            "cultura": preferencias["cultura"].lower().strip(),
+            "orcamento": preferencias["orcamento"].replace("_", "-").lower().strip()
+        }
 
-    candidatos = df_paises[df_paises["perfil"].str.lower() == perfil_csv.lower()].copy()
+        candidatos = df_paises[
+            df_paises["perfil"].str.lower() == perfil_csv.lower()
+        ].copy()
 
-    if candidatos.empty:
+        if candidatos.empty:
+            return jsonify({
+                'perfil': perfil_previsto,
+                'destinos': [],
+                'mensagem': "Nenhum país com esse perfil."
+            })
+
+        def pontuar(linha):
+            score = 0
+            if prefs["continente"] in linha["continente"].lower():
+                score += 4
+            if prefs["orcamento"] in linha["orcamento"].lower():
+                score += 3
+            if prefs["idioma"] in linha["idioma"].lower():
+                score += 2
+            if prefs["cultura"] in linha["cultura"].lower():
+                score += 1
+            return score
+
+        candidatos["score"] = candidatos.apply(pontuar, axis=1)
+        candidatos = candidatos.sort_values(by="score", ascending=False)
+
+        if candidatos["score"].max() == 0:
+            return jsonify({
+                'perfil': perfil_previsto,
+                'destinos': [],
+                'mensagem': "Nenhum país compatível com as preferências."
+            })
+
+        top3 = candidatos.head(3)
+        nomes_top3 = top3["nome"].tolist()
+
         return jsonify({
             'perfil': perfil_previsto,
-            'destinos': [],
-            'mensagem': "Nenhum país com esse perfil."
+            'destinos': nomes_top3,
+            'mensagem': f"Baseado no perfil '{perfil_previsto}', recomendamos estes destinos."
         })
 
-    # NOVA FUNÇÃO DE PONTUAÇÃO COM PESOS
-    def pontuar(linha):
-        score = 0
-        if prefs["continente"] in linha["continente"].lower():
-            score += 4
-        if prefs["orcamento"] in linha["orcamento"].lower():
-            score += 3
-        if prefs["idioma"] in linha["idioma"].lower():
-            score += 2
-        if prefs["cultura"] in linha["cultura"].lower():
-            score += 1
-        return score
+    except Exception as e:
+        print("❌ ERRO:", str(e))
+        return jsonify({'erro': str(e)}), 500
 
-    candidatos["score"] = candidatos.apply(pontuar, axis=1)
-    candidatos = candidatos.sort_values(by="score", ascending=False)
-
-    if candidatos["score"].max() == 0:
-        return jsonify({
-            'perfil': perfil_previsto,
-            'destinos': [],
-            'mensagem': "Nenhum país compatível com as preferências."
-        })
-
-    # Top 3 destinos com melhor score
-    top3 = candidatos.head(3)
-    nomes_top3 = top3["nome"].tolist()
-
-    print("🎯 Top 3 destinos encontrados:")
-    for i, row in top3.iterrows():
-        print(f" - {row['nome']} | Score: {row['score']}")
-
-    return jsonify({
-        'perfil': perfil_previsto,
-        'destinos': nomes_top3,
-        'mensagem': f"Baseado no perfil '{perfil_previsto}', recomendamos estes destinos."
-    })
-
-if __name__ == '__main__':
-    app.run(debug=True)
+# ❌ NÃO usar app.run() no Render
